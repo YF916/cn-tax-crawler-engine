@@ -7,21 +7,31 @@ import requests
 from datetime import datetime
 from urllib.parse import urljoin
 from lxml import html as lxml_html
-
+from pathlib import Path
 
 # ===================== 配置区 =====================
 BASE_SITE = "https://12366.chinatax.gov.cn"
 BASE_URL_LIST = "https://12366.chinatax.gov.cn/nszx/onlinemessage/messagelist"
 BASE_URL_DETAIL = "https://12366.chinatax.gov.cn/nszx/onlinemessage/detail"
 
-DB_FILE = "qa_db.json"                 # JSON 问答库
-STATE_FILE = "crawl_state.json"        # 运行状态（断点、失败队列、cooldown）
+# DB_FILE = "qa_db.json"                 # JSON 问答库
+# STATE_FILE = "crawl_state.json"        # 运行状态（断点、失败队列、cooldown）
+#
+# ATTACH_DIR = "attachments"
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-ATTACH_DIR = "attachments"
+DATA_DIR = BASE_DIR / "data"
+ATTACH_DIR = BASE_DIR / "attachments"
+
+DB_FILE = DATA_DIR / "qa_db.json"
+STATE_FILE = DATA_DIR / "crawl_state.json"
+
+DATA_DIR.mkdir(exist_ok=True)
+ATTACH_DIR.mkdir(exist_ok=True)
 DOWNLOAD_ATTACHMENTS = True
 
 START_PAGE = 1
-END_PAGE = 5000
+END_PAGE = 2
 
 # 全局限速：30 req/min ~= 2s/req（列表/详情/附件都算）
 TARGET_RPM = 30
@@ -64,10 +74,16 @@ def load_db(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def save_db_atomic(path: str, db: dict):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
+
+def save_db_atomic(path: Path, db: dict) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+
+    with tmp.open("w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
+
     os.replace(tmp, path)
 
 def upsert_record(db: dict, record: dict):
@@ -131,9 +147,9 @@ def load_state(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def save_state_atomic(path: str, st: dict):
+def save_state_atomic(path: Path, st: dict):
     st["last_saved_at"] = datetime.now().isoformat(timespec="seconds")
-    tmp = path + ".tmp"
+    tmp = path.with_suffix(path.suffix + ".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(st, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
