@@ -281,5 +281,93 @@ BACKFILL
 * 长时间、低频、稳定爬取任务
 
 
+## Viewer（只读前端仪表盘）
+
+本项目包含一个 **可选的只读前端 Viewer**，用于可视化查看爬虫运行状态、问答数据与附件下载结果。
+
+Viewer **不参与爬取流程、不修改任何数据**，仅用于调试、审查和长期运行监控。
+
+### Viewer 能做什么
+
+* 查看当前爬虫运行状态（`next_page / end_page / consec_403 / cooldown`）
+* 浏览已抓取的问答列表（分页 / 搜索）
+* 快速定位失败附件（`failed_attachments`）
+* 按 `msg_id` 查看并下载本地附件
+* 作为长时间运行爬虫的 **调试与审计面板**
+
+---
+
+### Viewer 结构
+
+```
+viewer/
+├── backend/   # 只读 API（FastAPI）
+│   ├── app.py
+│   └── requirements.txt
+└── frontend/  # 静态前端页面
+    └── index.html
+```
+
+Viewer 与 `crawler/` **完全解耦**，不会影响爬虫运行。
+
+---
+
+### 启动 Viewer 后端（API）
+
+在项目根目录执行：
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+
+pip install -r viewer/backend/requirements.txt
+uvicorn viewer.backend.app:app --reload --host 127.0.0.1 --port 8787
+```
+
+启动后，可通过以下接口验证后端是否正常：
+
+* [http://127.0.0.1:8787/api/overview](http://127.0.0.1:8787/api/overview)
+* [http://127.0.0.1:8787/api/qa](http://127.0.0.1:8787/api/qa)
+
+---
+
+### 启动 Viewer 前端（静态页面）
+
+在 **新终端窗口** 中执行：
+
+```bash
+cd viewer/frontend
+python -m http.server 8788
+```
+
+然后在浏览器中打开：
+
+```
+http://127.0.0.1:8788
+```
+
+---
+
+### 使用说明
+
+* Viewer 为 **只读模式**，不会触发任何写操作
+* 建议在爬虫运行过程中或运行完成后使用
+* 前后端分离设计，可单独启动 / 停止
+* 若页面空白，请确认：
+
+  * 后端 API（8787）已启动
+  * 前端静态服务（8788）已启动
+  * 浏览器强制刷新（`Cmd/Ctrl + Shift + R`）
+
+---
+
+### 设计说明
+
+* Viewer 通过读取以下文件/目录进行展示：
+  * `data/crawl_state.json`
+  * `data/qa_db.json`
+  * `attachments/`
+* 不依赖数据库，不引入额外状态
+* 适合作为 **调试工具 / 数据审查工具 / Demo 展示界面**
 
 

@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CN Tax Crawler Viewer</title>
+
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 18px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px 14px; min-width: 240px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px 6px; text-align: left; vertical-align: top; }
+    th { background: #fafafa; position: sticky; top: 0; }
+    .muted { color: #666; font-size: 12px; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:12px; }
+    input { padding: 8px 10px; width: 320px; }
+    button { padding: 8px 12px; cursor: pointer; }
+    a { color: inherit; text-decoration: none; }
+
+    .linkbtn { border:1px solid #ddd; background:#fff; border-radius:8px; padding:6px 10px; }
+    .filelist { margin-top:8px; }
+    .fileitem { display:flex; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid #eee; }
+  </style>
+</head>
+
+<body>
+  <h2>CN Tax Crawler Viewer</h2>
+
+  <!-- Overview -->
+  <div class="row" id="overview"></div>
+
+  <!-- Controls -->
+  <div style="margin-top:14px" class="row">
+    <div>
+      <input id="q" placeholder="搜索：标题 / 问题 / 答复（回车）" />
+      <button id="searchBtn">Search</button>
+      <span class="muted" id="countInfo"></span>
+    </div>
+    <div style="margin-left:auto">
+      <button id="prevBtn">Prev</button>
+      <span class="pill" id="pageInfo">1</span>
+      <button id="nextBtn">Next</button>
+    </div>
+  </div>
+
+  <!-- QA Table -->
+  <table>
+    <thead>
+      <tr>
+        <th>标题</th>
+        <th>地区</th>
+        <th>留言 / 答复</th>
+        <th>机构</th>
+        <th>状态</th>
+        <th>附件</th>
+        <th>链接</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+
+  <!-- Failed Attachments -->
+  <h3 style="margin-top:18px">失败附件</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>问答ID</th>
+        <th>附件标题</th>
+        <th>附件ID</th>
+        <th>附件链接</th>
+      </tr>
+    </thead>
+    <tbody id="fatbody"></tbody>
+  </table>
+
+  <!-- Attachments Modal -->
+  <div id="modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.35);">
+    <div style="background:#fff; width:min(780px,92vw); margin:8vh auto; border-radius:12px; padding:14px 16px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div style="font-weight:700;">Attachments</div>
+        <div class="muted" id="modalMsgId"></div>
+        <div style="margin-left:auto;">
+          <button id="closeModalBtn">Close</button>
+        </div>
+      </div>
+      <div id="modalBody" class="muted" style="margin-top:10px;">Loading...</div>
+    </div>
+  </div>
+
+<script>
+/* ================== 基础配置 ================== */
+const API = "http://127.0.0.1:8787";
+let page = 1;
+const pageSize = 20;
+
+/* ================== 工具函数 ================== */
+function bindClick(id, handler) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.onclick = handler;
+}
+
+async function jget(path) {
+  const r = await fetch(API + path);
+  return await r.json();
+}
+
+function card(title, lines) {
+  const div = document.createElement("div");
+  div.className = "card";
+  div.innerHTML =
+    `<div style="font-weight:600;margin-bottom:6px">${title}</div>` +
+    lines.map(x => `<div>${x}</div>`).join("");
+  return div;
+}
+
+/* ================== 数据加载 ================== */
+async function loadOverview() {
+  const o = await jget("/api/overview");
+  const wrap = document.getElementById("overview");
+  wrap.innerHTML = "";
+
+  wrap.appendChild(card("Crawler State", [
+    `next_page: <b>${o.state.next_page ?? "-"}</b> / end_page: <b>${o.state.end_page ?? "-"}</b>`,
+    `last_saved_at: <b>${o.state.last_saved_at ?? "-"}</b>`,
+    `consec_403: <b>${o.state.consec_403 ?? 0}</b>`,
+    `failed_attachments: <b>${o.state.failed_attachments ?? 0}</b>`
+  ]));
+
+  wrap.appendChild(card("QA DB", [
+    `count: <b>${o.qa.count ?? "-"}</b>`,
+    `max_question_length: <b>${o.qa.max_question_length ?? "-"}</b>`
+  ]));
+}
+
+async function loadQA() {
+  const q = document.getElementById("q").value.trim();
+  const res = await jget(`/api/qa?q=${encodeURIComponent(q)}&page=${page}&page_size=${pageSize}`);
+
+  document.getElementById("pageInfo").textContent = String(page);
+  document.getElementById("countInfo").textContent = ` total ${res.total}`;
+
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+
+  for (const r of res.rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><b>${r["标题"] ?? ""}</b><div class="muted">${r.id}</div></td>
+      <td>${r["纳税人所属地"] ?? ""}</td>
+      <td>
+        <div class="muted">留言：${r["留言时间"] ?? ""}</div>
+        <div class="muted">答复：${r["答复时间"] ?? ""}</div>
+      </td>
+      <td>${r["答复机构"] ?? ""}</td>
+      <td><span class="pill">${r.status ?? ""}</span></td>
+      <td>
+        ${r["附件数量"]} / 本地:${r["本地附件"] ? "✅" : "—"}
+        ${r["本地附件"] ? `<button class="linkbtn" data-att="${r.id}">查看</button>` : ""}
+      </td>
+      <td><a href="${r.url}" target="_blank">打开</a></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  document.getElementById("prevBtn").disabled = page <= 1;
+  document.getElementById("nextBtn").disabled = page * pageSize >= res.total;
+}
+
+async function loadFailedAttachments() {
+  const rows = await jget("/api/failed_attachments");
+  const tbody = document.getElementById("fatbody");
+  tbody.innerHTML = "";
+
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="muted">${r.id}</td>
+      <td>${r["标题"] ?? ""}</td>
+      <td class="muted">${r.fileId ?? ""}</td>
+      <td><a href="${r.url}" target="_blank">下载</a></td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+/* ================== 启动 & 事件绑定 ================== */
+window.addEventListener("DOMContentLoaded", async () => {
+  const modal = document.getElementById("modal");
+  const modalBody = document.getElementById("modalBody");
+  const modalMsgId = document.getElementById("modalMsgId");
+
+  function openModal(msgId) {
+    modalMsgId.textContent = msgId;
+    modalBody.textContent = "Loading...";
+    modal.style.display = "block";
+  }
+
+  function closeModal() {
+    modal.style.display = "none";
+    modalBody.innerHTML = "";
+    modalMsgId.textContent = "";
+  }
+
+  bindClick("searchBtn", () => { page = 1; loadQA(); });
+  bindClick("prevBtn", () => { page--; loadQA(); });
+  bindClick("nextBtn", () => { page++; loadQA(); });
+  bindClick("closeModalBtn", closeModal);
+
+  document.getElementById("q").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { page = 1; loadQA(); }
+  });
+
+  document.getElementById("tbody").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-att]");
+    if (!btn) return;
+
+    const msgId = btn.getAttribute("data-att");
+    openModal(msgId);
+
+    const files = await jget(`/api/attachments/${msgId}`);
+    if (!files.length) {
+      modalBody.innerHTML = `<div class="muted">No attachments</div>`;
+      return;
+    }
+
+    modalBody.innerHTML = `
+      <div class="filelist">
+        ${files.map(f => `
+          <div class="fileitem">
+            <div style="flex:1">
+              <b>${f.filename}</b>
+              <div class="muted">${f.size} bytes</div>
+            </div>
+            <a class="linkbtn"
+               href="${API}/api/file/${msgId}/${encodeURIComponent(f.filename)}"
+               target="_blank">下载</a>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  });
+
+  await loadOverview();
+  await loadQA();
+  await loadFailedAttachments();
+  setInterval(loadOverview, 5000);
+});
+</script>
+
+</body>
+</html>
