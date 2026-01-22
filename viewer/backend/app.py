@@ -4,7 +4,8 @@ from pathlib import Path
 import json
 from datetime import datetime
 from typing import Optional
-
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data"
@@ -29,10 +30,11 @@ def read_json(path: Path) -> dict:
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
+# file 最后修改时间
 def file_mtime_iso(path: Path) -> Optional[str]:
     if not path.exists():
         return None
-    ts = path.stat().st_mtime
+    ts = path.stat().st_mtime # modification time
     return datetime.fromtimestamp(ts).isoformat(timespec="seconds")
 
 @app.get("/api/overview")
@@ -72,6 +74,7 @@ def failed_attachments():
     state = read_json(STATE_PATH)
     return state.get("failed_attachments") or []
 
+# /api/qa?q=增值税&status=ok&page=2&page_size=20
 @app.get("/api/qa")
 def qa_list(
     q: str = Query(default="", description="Search in 标题/问题内容/答复内容"),
@@ -166,10 +169,6 @@ def attachments_by_msg(msg_id: str):
             "size": p.stat().st_size,
         })
     return out
-
-
-from fastapi import HTTPException
-from fastapi.responses import FileResponse
 
 @app.get("/api/file/{msg_id}/{filename}")
 def download_file(msg_id: str, filename: str):
